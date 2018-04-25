@@ -6,6 +6,8 @@ import datetime as dt
 from dateutil.relativedelta import *
 import time
 
+import pprint as pp
+
 def format(json_result, date_range):
 	data_obj = {}
 	
@@ -17,16 +19,15 @@ def format(json_result, date_range):
 			data_obj[key].append(value)
 	
 	result_frame = pd.DataFrame(data_obj)
-	
-	result_frame["date"] = date_range
-	
 	return result_frame
 
+def query_format(responses):
+	formatted_results = pd.concat(responses, ignore_index=True) # Move to a different function
+	return formatted_results
+	
+	
 # range calculators
 def month_ranges(pd, cd):
-	#cd = dt.datetime.strptime(cd, "%Y-%m-%d")
-	#pd = dt.datetime.strptime(pd, "%Y-%m-%d")
-	print(cd, dt)
 	cd_diff = ((cd.year - pd.year) * 12) + (cd.month - pd.month)
 	
 	days_diff = cd.day - pd.day
@@ -39,6 +40,12 @@ def month_ranges(pd, cd):
 	cd_diff += adjust
 	
 	return cd_diff
+	
+def day_ranges(pd, cd):
+	print(cd, pd)
+	days_diff = cd - pd
+	
+	return days_diff.days
 	
 def string_date(date_name):
 	return date_name.strftime("%Y-%m-%d")
@@ -53,44 +60,65 @@ class moat_requests():
 		"level": [],
 		"dates" : []
 		}
-		self.granularity_list = ["day", "months", "week"]
-		self.levels = ["level1", "level2", "level3", "level4"]
+		self.granularity_list = ["days", "months", "week"]
+		self.available_levels = ["level1", "level2", "level3", "level4"]
 	
 
 	def metric(self, *metric_list):
 		# appends list of metrics to request
+		
+		#clear previous list
+		self.query["metrics"] = []
 		for val in metric_list:
 			self.query["metrics"].append(val)
-	
-	
-	def date_range(self, start_date, end_date, granularity=None):
+			
+	def levels(self, *level_list):
+		
+		# clear previous list
+		self.query["level"] = []
+		
+		for level in level_list:
+			if level in self.available_levels:
+				self.query["level"].append(level)
+			
+	def date_range_2(self, start_date, end_date, granularity=None):
+		start_date = dt.datetime.strptime(start_date, "%Y-%m-%d")
+		end_date = dt.datetime.strptime(end_date, "%Y-%m-%d")
+		
+		# clear dates
+		self.query["dates"] = []
+		
 		if granularity:
 			if granularity in self.granularity_list:
 				print(granularity)
 				if granularity == "days":
-					for i in range(0, date_range):
-						self.query["dates"].append((start_date + relativedelta(days=i), start_date + relativedelta(days=i)))
+					self.query["dates"] = {"start_date": start_date, "end_date": end_date, "granularity": "date"}
 				elif granularity == "months":
-					start_date = dt.datetime.strptime(start_date, "%Y-%m-%d")
-					end_date = dt.datetime.strptime(end_date, "%Y-%m-%d")
-					periods = month_ranges(start_date, end_date) 
-					print(periods)
-					for i in range(0, periods):
-						self.query["dates"].append((string_date(start_date + relativedelta(months=i)), string_date(start_date+relativedelta(months=i+1, days=-1))))
+					self.query["dates"] = {"start_date": start_date, "end_date": end_date, "granularity": "date", "date_grouping": "&date_grouping=month"}
 				elif granularity == "weeks":
-					for i in range(0, date_range):
-						self.query["dates"].append((start_date + relativedelta(i*7-6), start_date + relativedelta(days=i*7)))
+					self.query["dates"] = {"start_date": start_date, "end_date": end_date, "granularity": "date", "date_grouping": "&date_grouping=week"}
 		else:
-			self.query["dates"].append((start_date, end_date))
+			self.query["dates"].append((start_date, end_date))			
 	
-	def build(self):
-		# builds api request
+	def build(self, **options):
+		
+		option_dict = dict(**options)
+		
 		seperator = ","
 		self.request_queue = {}
-		#print(self.request_queue)
-		for dates in self.query["dates"]:
-			url = "https://api.moat.com/1/stats.json?start={}&end={}&columns={},{}".format(dates[0], dates[1], self.query["level"], seperator.join(self.query["metrics"]))
-			self.request_queue[dates[0]] = url
+		
+		url = "https://api.moat.com/1/stats.json?start={start_date}&end={end_date}&{filter}={filter_label}{group_date}&columns={date},{level_label},{metric_labels}".format(
+		start_date=self.query["dates"].get("start_date", ""), 
+		end_date=self.query["dates"].get("end_date", ""), 
+		filter = option_dict.get("filter",""),
+		filter_label = option_dict.get("filter_label",""),
+		group_date = self.query["dates"].get("date_grouping", ""),
+		date = self.query["dates"].get("granularity", ""),
+		level_label=seperator.join(self.query["level"]), 
+		metric_labels=seperator.join(self.query["metrics"]))
+		print(url)
+		self.request_queue[self.query["dates"]["start_date"]] = url
+			
 	
 	def send_query(self):
 		# sends query
@@ -104,16 +132,18 @@ class moat_requests():
 					# time out section to be nice with the api
 					print("Sleeping....")
 					time.sleep(5)
-					#print(result_json)
+					pp.pprint(result_json)
 					self.responses.append(format(result_json, date))
 					break
-				except:
-					print("Error")
+				except Exception as e:
+					print("Error: {}.... Sleeping for 10".format(e))
 					time.sleep(10)
 					continue
 		
-		formatted_results = pd.concat(self.responses, ignore_index=True)
+		formatted_results = query_format(self.responses)
 		return formatted_results
+	
+
 	
 	"""
 	def moat_filter_req(dates, levelid, metrics=["impressions_analyzed"], level="level2", filter_label="level1"):
