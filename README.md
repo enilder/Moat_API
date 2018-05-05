@@ -6,7 +6,7 @@ Returns your dataformatted in a pandas dataframe.<br>
 
 ### Initializing Moat Requests
 
-Initialize requests by passing your username and password in moat_request function
+Initialize requests by passing your username and password in the `moat_request` function
 
 `moat_req = moat.moat_requests("api_key", "password")`
 
