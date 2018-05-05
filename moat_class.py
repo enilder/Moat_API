@@ -80,8 +80,9 @@ class moat_requests():
 		for level in level_list:
 			if level in self.available_levels:
 				self.query["level"].append(level)
-			
-	def date_range_2(self, start_date, end_date, granularity=None):
+	
+	
+	def date_range(self, start_date, end_date, granularity=None):
 		start_date = dt.datetime.strptime(start_date, "%Y-%m-%d")
 		end_date = dt.datetime.strptime(end_date, "%Y-%m-%d")
 		
@@ -108,8 +109,8 @@ class moat_requests():
 		self.request_queue = {}
 		
 		url = "https://api.moat.com/1/stats.json?start={start_date}&end={end_date}&{filter}={filter_label}{group_date}&columns={date},{level_label},{metric_labels}".format(
-		start_date=self.query["dates"].get("start_date", ""), 
-		end_date=self.query["dates"].get("end_date", ""), 
+		start_date= string_date(self.query["dates"].get("start_date", "")), 
+		end_date= string_date(self.query["dates"].get("end_date", "")), 
 		filter = option_dict.get("filter",""),
 		filter_label = option_dict.get("filter_label",""),
 		group_date = self.query["dates"].get("date_grouping", ""),
@@ -130,9 +131,9 @@ class moat_requests():
 					result = requests.get(request_url, auth=HTTPBasicAuth(self.username, self.password))
 					result_json = json.loads(result.text)
 					# time out section to be nice with the api
-					print("Sleeping....")
+					print("Request ok. Sleeping....")
 					time.sleep(5)
-					pp.pprint(result_json)
+					#pp.pprint(result_json)
 					self.responses.append(format(result_json, date))
 					break
 				except Exception as e:
@@ -140,47 +141,24 @@ class moat_requests():
 					time.sleep(10)
 					continue
 		
-		formatted_results = query_format(self.responses)
-		return formatted_results
-	
-
-	
-	"""
-	def moat_filter_req(dates, levelid, metrics=["impressions_analyzed"], level="level2", filter_label="level1"):
-		# filter down through a list of items
-		seperator = ","
-		result = req.get("https://api.moat.com/1/stats.json?start={}&end={}&{}={}&columns={},{}" \
-                     .format(dates[0], dates[1], filter_label, levelid ,level, seperator.join(metrics)),
-                     auth=HTTPBasicAuth(self.username, self.password))
-    result_json = json.loads(result.text)
-    return result_json
-	"""
-	
-	"""
-	def filter_format(json_res, date_value, levelid, label):
-		data_obj = {}
-
-		#  Retrieves the key values for data_obj
-		for key in json_res["results"]["details"][0]:
-			data_obj[key] = []
-
-		for result in json_res["results"]["details"]:
-			for key, value in result.items():
-				data_obj[key].append(value)
-
-		# insert into a dataframe
-		moat_frame = pd.DataFrame(data_obj)
-
-		print(moat_frame)
-
-		# date added
-		moat_frame["date_val"] = date_value
-
-		# id added
-		moat_frame["level1_id"] = levelid
-
-		# label added
-		moat_frame["level1_label"] = label
-
-		return moat_frame
-	"""
+		df_results = query_format(self.responses)
+		df_results = self.datetimeConvert(df_results)
+		df_results = self.metricConvert(df_results)
+		return df_results
+		
+		
+	def datetimeConvert(self, df_results):
+		if "date" in df_results.columns:
+			df_results["date"] = pd.to_datetime(df_results["date"])
+		return df_results
+		
+	def metricConvert(self, df_results):
+		# Convert any metric values using the datetime function
+		
+		metric_columns = [col for col in df_results if "date" not in col and "level" not in col]
+		
+		for metric in metric_columns:
+			df_results[metric] = pd.to_numeric(df_results[metric], errors="coerce")
+			if "perc" in metric:
+				df_results[metric] /= 100
+		return df_results
